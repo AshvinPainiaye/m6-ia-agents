@@ -10,64 +10,53 @@ Objectif pédagogique :
 from dataclasses import dataclass, field
 from typing import List, Literal, Tuple
 
-from model_stub import call_model
-from decisions import choose_decision
-from actions import answer, rephrase, refuse, escalate
+from model_openai import intention_model
+from actions import ask_path, explain, read_code, refuse
 
 
-Decision = Literal["ANSWER", "REPHRASE", "REFUSE", "ESCALATE"]
+Decision = Literal["ASK_PATH", "READ_CODE", "EXPLAIN", "REFUSE"]
 
 
 @dataclass
 class State:
     user_input: str
     model_output: str = ""
-    confidence: float = 0.0
     decision: Decision = "REFUSE"
     history: List[Tuple[str, str]] = field(default_factory=list)  # (user, system)
 
 
 def run_once(user_text: str, state: State) -> State:
-    """
-    Exécute un cycle de la boucle décisionnelle :
-    1) appel modèle
-    2) décision
-    3) action
-    4) update état
-    """
-    # 1) Appel au modèle (stub ou API)
-    model_output, confidence = call_model(user_text)
-
+    # 1) Appel au modèle
+    model_output = intention_model(user_text)
+    
     state.user_input = user_text
     state.model_output = model_output
-    state.confidence = confidence
-
-    # 2) Décision (règles explicites)
-    decision: Decision = choose_decision(
-        user_text=user_text,
-        model_output=model_output,
-        confidence=confidence,
-    )
+    
+    # 2) Décision
+    decision = model_output.get("decision", "")
+    args = model_output.get("args", {}) or {}
     state.decision = decision
-
+    print(decision, args)
+    
     # 3) Action
-    if decision == "ANSWER":
-        final = answer(model_output)
-    elif decision == "REPHRASE":
-        final = rephrase(model_output)
-    elif decision == "ESCALATE":
-        final = escalate(user_text, model_output)
-    else:
-        final = refuse(user_text)
+    if decision == "ASK_PATH":
+        final = args.get("question") or ask_path()
 
-    # 4) Mise à jour historique
+    elif decision == "READ_CODE":
+        chosen_path = args.get("path")
+        final = read_code(chosen_path)
+    elif decision == "EXPLAIN":
+        chosen_path = args.get("path")
+        final = explain(chosen_path)
+    else:
+        final = refuse("Décision invalide")
+
     state.history.append((user_text, final))
     return state
 
-
 def main() -> None:
     print("=== Mini-atelier — Boucle décisionnelle IA ===")
-    print("Tapez un message. 'quit' pour sortir.\n")
+    print("Commande: explique chemin.py. 'quit' pour sortir.\n")
 
     state = State(user_input="")
 
@@ -81,7 +70,7 @@ def main() -> None:
         state = run_once(user_text, state)
 
         # Trace minimale (à enrichir dans le TP)
-        print(f"\n[decision={state.decision} | confidence={state.confidence:.2f}]")
+        print(f"\n[decision={state.decision}]")
         print(state.history[-1][1])
         print("")
 

@@ -1,0 +1,20 @@
+:root {
+  --primary: #333;
+  --bg: #f6f6f6;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--primary);
+}
+
+.card {
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  max-width: 420px;
+  margin: 24px auto;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}

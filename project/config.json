@@ -1,0 +1,8 @@
+{
+  "appName": "MiniAgent",
+  "version": "1.0.0",
+  "features": ["read", "explain"],
+  "limits": {
+    "maxChars": 12000
+  }
+}
