@@ -3,7 +3,7 @@ load_dotenv()
 
 import os
 import json
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -26,24 +26,35 @@ def intention_model(user_text: str) -> Dict[str, Any]:
     - HTML (.html)
     - JSON (.json)
     - Markdown (.md)
-    
+
     Décisions possibles :
-    - ASK_PATH : aucun fichier n'est mentionné
-    args: {"question":"Quel fichier veux-tu que je lise ?"}
 
-    - READ_CODE : l'utilisateur veut lire/afficher un fichier
+    - ASK_PATH : il manque une information (souvent le nom de fichier)
+    args: {"question":"...question courte..."}
+
+    - READ_CODE : l'utilisateur veut lire/afficher un fichier existant
     args: {"path":"nom_du_fichier.ext"}
 
-    - EXPLAIN : l'utilisateur veut une explication d'un fichier
+    - EXPLAIN : l'utilisateur veut une explication d'un fichier existant
     args: {"path":"nom_du_fichier.ext"}
+
+    - GENERATE_CODE : l'utilisateur veut générer un NOUVEAU fichier et l'écrire dans project/generated/
+    args: {
+        "filename":"nouveau_fichier.ext",
+        "description":"ce que doit faire le nouveau fichier (1-2 phrases)",
+        "source_path":"fichier_source.ext"  // optionnel: si l'utilisateur veut se baser/corriger un fichier existant
+    }
 
     Règles :
     1) Tu dois extraire le nom du fichier depuis le message utilisateur si présent.
-    2) Si aucun nom fichier avec extension n'est présent : ASK_PATH.
+    2) Si un fichier est requis (path ou filename) et n'est pas clairement présent : ASK_PATH.
     3) Si l'utilisateur demande une explication (explique, comprendre, détails, comment ça marche) : EXPLAIN (avec args.path).
-    4) Sinon si l'utilisateur demande juste lire/afficher/ouvrir/voir le fichier : READ_CODE (avec args.path).
-    5) N'invente jamais de nom de fichier.
-    6) Ne retourne JAMAIS ASK_PATH si un fichier est clairement mentionné.
+    4) Si l'utilisateur demande juste lire/afficher/ouvrir/voir le fichier : READ_CODE (avec args.path).
+    5) Si l'utilisateur demande de "créer/générer/écrire" un nouveau fichier : GENERATE_CODE.
+    - args.filename DOIT être présent (avec extension). Si absent : ASK_PATH ("Quel nom de fichier dois-je créer ?").
+    - N'invente jamais de nom de fichier.
+    6) Pour GENERATE_CODE, si l'utilisateur mentionne un fichier existant comme base (ex: "corrige buggy_code.py") mets-le dans args.source_path.
+    7) Ne retourne JAMAIS ASK_PATH si un nom de fichier avec extension est clairement mentionné et qu'il correspond à ce qui est demandé.
 
     Exemples :
     User: "lis le fichier index.js"
@@ -52,11 +63,11 @@ def intention_model(user_text: str) -> Dict[str, Any]:
     User: "peux-tu expliquer le style.css ?"
     {"decision":"EXPLAIN","args":{"path":"style.css"}}
 
-    User: "ouvre README.md"
-    {"decision":"READ_CODE","args":{"path":"README.md"}}
+    User: "crée un fichier buggy_code_fixed.py qui corrige buggy_code.py"
+    {"decision":"GENERATE_CODE","args":{"filename":"buggy_code_fixed.py","description":"Corriger les exceptions possibles et sécuriser les accès (division par zéro, None, types).","source_path":"buggy_code.py"}}
 
-    User: "explique ce fichier"
-    {"decision":"ASK_PATH","args":{"question":"Quel fichier veux-tu que je lise ?"}}
+    User: "crée un nouveau fichier qui corrige le code"
+    {"decision":"ASK_PATH","args":{"question":"Quel nom de fichier dois-je créer ?"}}
     """
     
     response = client.responses.create(
@@ -88,4 +99,32 @@ def explain_model(code: str) -> str:
         input=f"CODE:\n{code}"
     )
 
+    return (resp.output_text or "").strip()
+
+
+def generate_code_model(description: str, source_code: Optional[str] = None) -> str:
+    """Génère du code (réponse = code uniquement) à partir d'une description + contexte optionnel."""
+    model = "gpt-5-nano"
+
+    instructions = """
+    Tu es un assistant développeur.
+
+    Tu dois RENVOYER UNIQUEMENT le contenu du fichier (du code), sans markdown, sans explication, sans triple backticks.
+
+    Contraintes :
+    - Si tu génères du Python, le code doit être exécutable et inclure des docstrings ou commentaires courts.
+    - Ne fais pas d'import inutile.
+    - Si un contexte de code source est fourni et que la demande est de "corriger", produis une version plus robuste (checks, exceptions claires).
+    - Le résultat doit être un fichier complet (pas un patch).
+    """
+
+    prompt = f"DEMANDE:\n{description}\n"
+    if source_code:
+        prompt += "\nCODE SOURCE (contexte):\n" + source_code
+
+    resp = client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=prompt
+    )
     return (resp.output_text or "").strip()
